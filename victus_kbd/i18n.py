@@ -1,13 +1,38 @@
 """Tiny translation layer: Turkish source strings, English for every other locale.
 
-The language comes from VICTUS_KBD_LANG, or else the usual locale variables.
+The language comes from VICTUS_KBD_LANG, else the choice saved in the app
+(Settings → App → Language), else the usual locale variables.
 To add a language, add a dict like EN below and pick it in detect_language().
 """
+import configparser
 import os
+
+LANGUAGES = ("tr", "en")
+# Same file QSettings("victus-kbd", "gui") uses, readable before Qt starts
+SETTINGS_PATH = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+                             "victus-kbd", "gui.conf")
+
+
+def saved_language():
+    """The language picked in the app, or None for "follow the system"."""
+    cp = configparser.ConfigParser()
+    try:
+        cp.read(SETTINGS_PATH)
+    except configparser.Error:
+        return None
+    value = cp.get("General", "language", fallback="auto")
+    return value if value in LANGUAGES else None
 
 
 def detect_language():
-    for var in ("VICTUS_KBD_LANG", "LC_ALL", "LC_MESSAGES", "LANG"):
+    forced = os.environ.get("VICTUS_KBD_LANG", "")
+    if forced:
+        return "tr" if forced.lower().startswith("tr") else "en"
+    return saved_language() or system_language()
+
+
+def system_language():
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
         value = os.environ.get(var, "")
         if value:
             return "tr" if value.lower().startswith("tr") else "en"
@@ -93,6 +118,10 @@ EN = {
     "Klavye ışığı pil ömrünü biraz kısaltır; pilde parlaklığı düşürmek iyi bir denge sağlar.":
         "Keyboard lighting uses some battery; lowering brightness on battery is a good balance.",
     # app tab
+    "Dil": "Language",
+    "Dil:": "Language:",
+    "Otomatik (sistem dili)": "Automatic (system language)",
+    "Dil değişikliği için uygulama yeniden başlatılacak.": "The app will restart to change the language.",
     "Sistem tepsisi": "System tray",
     "Sistem tepsisinde simge göster": "Show an icon in the system tray",
     "Pencereyi kapatınca tepsiye küçült": "Minimize to tray when the window is closed",

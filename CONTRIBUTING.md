@@ -58,7 +58,8 @@ python3 -m victus_kbd.gui             # the window
 watch -n0.2 cat /tmp/vk/sys/color     # see what the keyboard would get
 ```
 
-`VICTUS_KBD_LANG=en` or `VICTUS_KBD_LANG=tr` forces the UI language.
+`VICTUS_KBD_LANG=en` or `VICTUS_KBD_LANG=tr` forces the UI language (it overrides the choice
+saved in the App tab, which lives in `~/.config/victus-kbd/gui.conf`).
 
 To try the real keyboard, stop the installed service first (`sudo systemctl stop victus-kbd`)
 and run the daemon with `sudo` and without `VICTUS_KBD_SYSFS`.
@@ -97,8 +98,9 @@ probes the color before registering anything. Kernel code follows the kernel cod
 ## Adding a language
 
 1. Add a dict (for example `DE`) next to `EN` in `victus_kbd/i18n.py` with every key of `EN`.
-2. Pick it in `detect_language()` and `T()`.
-3. Add `Name[xx]=` / `Comment[xx]=` lines to `data/victus-kbd.desktop`.
+2. Add its code to `LANGUAGES` and handle it in `system_language()` and `T()`.
+3. Add it to the language list in `Window.build_app_tab()` (`victus_kbd/gui.py`), written in that language.
+4. Add `Name[xx]=` / `Comment[xx]=` lines to `data/victus-kbd.desktop`.
 
 ## Pull requests
 

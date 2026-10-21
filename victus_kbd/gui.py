@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from victus_kbd import __version__
-from victus_kbd.i18n import T
+from victus_kbd.i18n import LANG, T, system_language
 from victus_kbd.effects import (
     COLOR_EFFECTS, CONFIG_PATH, DEFAULTS, PREVIEW_PATH, PROFILE_KEYS, compute_color,
     heartbeat_period, load_config, on_ac_power, period, resolve, save_config, schedule_active,
@@ -330,6 +330,19 @@ class Window(QWidget):
     def build_app_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
+
+        lang_box = QGroupBox(T("Dil"))
+        lf = QFormLayout(lang_box)
+        self.language = QComboBox()
+        # Language names are shown in their own language
+        for code, name in (("auto", T("Otomatik (sistem dili)")), ("tr", "Türkçe"), ("en", "English")):
+            self.language.addItem(name, code)
+        saved_lang = self.settings.value("language", "auto")
+        self.language.setCurrentIndex(max(0, self.language.findData(saved_lang)))
+        self.language.currentIndexChanged.connect(self.language_changed)
+        lf.addRow(T("Dil:"), self.language)
+        v.addWidget(lang_box)
+
         g = QGroupBox(T("Sistem tepsisi"))
         gv = QVBoxLayout(g)
         self.tray_on = QCheckBox(T("Sistem tepsisinde simge göster"))
@@ -716,6 +729,23 @@ class Window(QWidget):
         self.close_to_tray.setEnabled(self.tray_on.isChecked())
         if self.tray:
             self.tray.setVisible(self.tray_on.isChecked())
+
+    def language_changed(self):
+        code = self.language.currentData()
+        self.settings.setValue("language", code)
+        self.settings.sync()
+        if (code if code != "auto" else system_language()) == LANG:
+            return
+        if not self.confirm_discard():
+            return
+        QMessageBox.information(self, T("Dil"), T("Dil değişikliği için uygulama yeniden başlatılacak."))
+        self.restart_app()
+
+    def restart_app(self):
+        # A fresh process re-reads the language before any UI string is created
+        remove_preview()
+        args = [a for a in sys.argv[1:] if a != "--tray"]
+        os.execv(sys.executable, [sys.executable, "-m", "victus_kbd.gui"] + args)
 
     def set_autostart(self, on):
         if on:

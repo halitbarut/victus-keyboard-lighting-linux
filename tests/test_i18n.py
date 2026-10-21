@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import tests  # noqa: F401  (sets up the test environment)
 from victus_kbd.i18n import EN
@@ -37,6 +38,28 @@ class I18nTest(unittest.TestCase):
         for tr, en in EN.items():
             names = lambda s: sorted(f for _, f, _, _ in fmt.parse(s) if f)
             self.assertEqual(names(tr), names(en), tr)
+
+    def test_saved_language_is_used(self):
+        from victus_kbd import i18n
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "gui.conf")
+        env = {k: v for k, v in os.environ.items() if k != "VICTUS_KBD_LANG"}
+        with mock.patch.object(i18n, "SETTINGS_PATH", path), \
+                mock.patch.dict(os.environ, env, clear=True):
+            os.environ["LANG"] = "en_US.UTF-8"
+            self.assertEqual(i18n.detect_language(), "en")       # no file: follow the system
+            with open(path, "w") as f:
+                f.write("[General]\nlanguage=tr\n")
+            self.assertEqual(i18n.detect_language(), "tr")       # saved choice wins
+            with open(path, "w") as f:
+                f.write("[General]\nlanguage=auto\n")
+            self.assertEqual(i18n.detect_language(), "en")
+            os.environ["VICTUS_KBD_LANG"] = "tr"
+            self.assertEqual(i18n.detect_language(), "tr")       # env var wins over everything
+            with open(path, "w") as f:
+                f.write("not an ini file")
+            del os.environ["VICTUS_KBD_LANG"]
+            self.assertEqual(i18n.detect_language(), "en")       # broken file is ignored
 
     def run_lang(self, lang, code):
         env = dict(os.environ, VICTUS_KBD_LANG=lang, QT_QPA_PLATFORM="offscreen",

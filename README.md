@@ -52,7 +52,7 @@ system-tray icon.
   profile switching. Optional start at login.
 - **Command line** (`victus-kbd --toggle`, `--profile`, `--next-profile`) for keyboard shortcuts.
 - **Survives suspend/resume:** the color is re-sent periodically in case the firmware resets it.
-- **English and Turkish** user interface, picked from your system language.
+- **English and Turkish** user interface: follows your system language, or pick one in the **App** tab.
 - Runs as a small systemd service, so the effects keep running with the window closed
   and start again at boot.
 
@@ -175,7 +175,8 @@ times and pick the days. Overnight ranges belong to the day they start on: *Frid
 **Power tab** — what happens when the charger is unplugged: keep the light as is, limit its
 brightness, or turn it off.
 
-**App tab** — tray icon, minimize to tray when the window is closed, start at login.
+**App tab** — language (automatic, Türkçe, English; the app restarts to switch), tray icon,
+minimize to tray when the window is closed, start at login.
 
 **Bottom bar** — **Save** (Ctrl+S) stores the settings, **Revert** drops unsaved changes,
 **Defaults** resets everything except your profiles. Closing the window with unsaved
@@ -364,7 +365,7 @@ Windows'taki OMEN Gaming Hub'ın klavye ışığı kısmının Linux karşılı�
 - **Zamanlama:** seçtiğiniz günlerde, belirli saatler arasında açık kalsın (19:00–07:00 gibi gece aralıkları da olur)
 - **Pil ayarı:** şarj takılı değilken aynı kalsın, parlaklık düşsün ya da ışık kapansın
 - **Profiller**, **sistem tepsisi simgesi**, **komut satırı** ve klavye kısayolları
-- Arayüz sistem diline göre **Türkçe** ya da **İngilizce** açılır
+- Arayüz sistem diline göre **Türkçe** ya da **İngilizce** açılır; **Uygulama** sekmesinden dili elle de seçebilirsiniz
 
 ### Test edilen sistem
 
@@ -394,6 +395,7 @@ güncellemelerinde modül otomatik yeniden derlenir.
 - **Efekt** sekmesinden efekti, rengi, hızı ve parlaklığı seçin, sonra **Kaydet**'e basın.
 - **Zamanlama** sekmesinden ışığın hangi gün ve saatlerde açık olacağını ayarlayın.
 - **Güç** sekmesinden şarj takılı değilken ne olacağını seçin.
+- Sistem diliniz İngilizce ise **App → Language** kısmından **Türkçe**'yi seçin; uygulama Türkçe olarak yeniden açılır.
 - Üstteki renkli şerit klavyenin o anki halini gösterir. Işık kapalıysa nedenini yazar.
 - Pencereyi kapatınca uygulama sistem tepsisine küçülür. Tepsi simgesine sağ tıklayarak ışığı
   açıp kapatabilir, profil değiştirebilirsiniz.

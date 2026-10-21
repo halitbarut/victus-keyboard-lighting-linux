@@ -304,6 +304,32 @@ class GuiTest(unittest.TestCase):
         self.assertFalse(ev.isAccepted())
         self.assertTrue(self.w.isVisible())
 
+    def test_language_choice_saves_and_restarts(self):
+        self.assertEqual(self.w.language.currentData(), "auto")
+        with mock.patch.object(gui.Window, "restart_app") as restart, \
+                mock.patch.object(QMessageBox, "information"):
+            self.w.language.setCurrentIndex(self.w.language.findData("en"))
+            self.assertEqual(self.w.settings.value("language"), "en")
+            restart.assert_called_once()
+            restart.reset_mock()
+            self.w.language.setCurrentIndex(self.w.language.findData("tr"))  # already Turkish
+            self.assertEqual(self.w.settings.value("language"), "tr")
+            restart.assert_not_called()
+
+    def test_language_change_can_be_cancelled(self):
+        self.w.bright.setValue(50)
+        with mock.patch.object(gui.Window, "restart_app") as restart, answer(Btn.Cancel):
+            self.w.language.setCurrentIndex(self.w.language.findData("en"))
+        restart.assert_not_called()
+        self.assertTrue(self.w.dirty())
+
+    def test_restart_reexecs_without_tray_flag(self):
+        with mock.patch.object(gui.os, "execv") as execv, \
+                mock.patch.object(gui.sys, "argv", ["victus-kbd", "--tray"]):
+            self.w.restart_app()
+        args = execv.call_args[0][1]
+        self.assertEqual(args[1:], ["-m", "victus_kbd.gui"])
+
     def test_autostart_toggle(self):
         self.w.autostart.setChecked(True)
         with open(gui.AUTOSTART_PATH) as f:
@@ -362,6 +388,9 @@ class _MemSettings:
 
     def setValue(self, key, value):
         self.d[key] = value
+
+    def sync(self):
+        pass
 
 
 if __name__ == "__main__":
