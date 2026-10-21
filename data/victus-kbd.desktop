@@ -1,0 +1,21 @@
+[Desktop Entry]
+Type=Application
+Name=Victus Keyboard Lighting
+Name[tr]=Victus Klavye Işığı
+Comment=Control the RGB keyboard lighting of HP Victus laptops
+Comment[tr]=HP Victus klavye RGB ışığını ayarla
+Exec=victus-kbd
+Icon=input-keyboard
+Categories=Settings;HardwareSettings;
+Keywords=keyboard;rgb;light;klavye;ışık;
+Actions=toggle;next-profile;
+
+[Desktop Action toggle]
+Name=Toggle light
+Name[tr]=Işığı aç/kapat
+Exec=victus-kbd --toggle
+
+[Desktop Action next-profile]
+Name=Next profile
+Name[tr]=Sıradaki profil
+Exec=victus-kbd --next-profile

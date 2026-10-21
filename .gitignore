@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+
+# Kernel module build output
+module/*.o
+module/*.ko
+module/*.mod
+module/*.mod.c
+module/*.cmd
+module/.*.cmd
+module/.module-common.o
+module/Module.symvers
+module/modules.order
+module/.tmp_versions/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

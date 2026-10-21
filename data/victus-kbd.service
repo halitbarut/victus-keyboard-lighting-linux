@@ -1,0 +1,15 @@
+[Unit]
+Description=HP Victus keyboard lighting daemon
+Documentation=https://github.com/halitbarut/victus-keyboard-lighting-linux
+After=systemd-modules-load.service
+
+[Service]
+ExecStartPre=modprobe victus_kbd
+ExecStart=/usr/local/bin/victus-kbd-daemon
+Restart=on-failure
+RestartSec=3
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

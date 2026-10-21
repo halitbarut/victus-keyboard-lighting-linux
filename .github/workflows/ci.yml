@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pyqt6 libegl1 libxkbcommon0 shellcheck desktop-file-utils
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -t . -v
+      - name: Shell scripts
+        run: shellcheck -S warning install.sh uninstall.sh
+      - name: Desktop file
+        run: desktop-file-validate data/victus-kbd.desktop
+
+  module:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kernel headers
+        run: sudo apt-get update && sudo apt-get install -y linux-headers-$(uname -r)
+      - name: Build kernel module
+        run: make -C module
