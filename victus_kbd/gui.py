@@ -78,6 +78,27 @@ def dot_icon(rgb):
     return QIcon(pm)
 
 
+class PreviewStrip(QFrame):
+    """Rounded color bar; painted directly because restyling it 20 times a second is costly."""
+
+    def __init__(self):
+        super().__init__()
+        self.color = QColor("#1e1e1e")
+
+    def set_color(self, color):
+        if color != self.color:
+            self.color = color
+            self.update()
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(self.color)
+        p.drawRoundedRect(self.rect(), 10, 10)
+        p.end()
+
+
 def matching_profile(cfg):
     for name, prof in cfg["profiles"].items():
         if all(prof.get(k) == cfg[k] for k in PROFILE_KEYS):
@@ -109,7 +130,7 @@ class Window(QWidget):
         root = QVBoxLayout(self)
 
         # ----- header: live preview, power, profiles -----
-        self.preview = QFrame()
+        self.preview = PreviewStrip()
         self.preview.setFixedHeight(64)
         pv = QHBoxLayout(self.preview)
         self.preview_lbl = QLabel()
@@ -176,9 +197,8 @@ class Window(QWidget):
         self.heartbeat = QTimer(self, interval=2000)
         self.heartbeat.timeout.connect(self.keep_preview_alive)
         self.heartbeat.start()
-        self.anim = QTimer(self, interval=50)
+        self.anim = QTimer(self, interval=50)  # started by showEvent
         self.anim.timeout.connect(self.tick)
-        self.anim.start()
         self.slow = QTimer(self, interval=2000)
         self.slow.timeout.connect(self.poll)
         self.slow.start()
@@ -692,15 +712,24 @@ class Window(QWidget):
         return T("Kapalı · parlaklık %0")
 
     def tick(self):
-        if not self.isVisible():
-            return
         rgb = self.current_rgb()
         if rgb:
-            col, text = "#%02x%02x%02x" % rgb, ""
+            col, text = QColor(*rgb), ""
         else:
-            col, text = "#1e1e1e", self.off_reason()
-        self.preview.setStyleSheet(f"QFrame {{ background:{col}; border-radius:10px; }}")
-        self.preview_lbl.setText(text)
+            col, text = QColor("#1e1e1e"), self.off_reason()
+        self.preview.set_color(col)
+        if text != self.preview_lbl.text():
+            self.preview_lbl.setText(text)
+
+    # The preview animation and service status only matter while the window is shown
+    def showEvent(self, ev):
+        super().showEvent(ev)
+        self.anim.start()
+        self.poll()
+
+    def hideEvent(self, ev):
+        super().hideEvent(ev)
+        self.anim.stop()
 
     def poll(self):
         self.ac = on_ac_power()
@@ -714,11 +743,12 @@ class Window(QWidget):
             else:
                 self.saved, self.cfg = new, copy.deepcopy(new)
                 self.load_widgets()
-        r = subprocess.run(["systemctl", "is-active", "victus-kbd.service"],
-                           capture_output=True, text=True)
-        self.service_state = r.stdout.strip()
-        self.update_status()
-        self.update_labels()
+        if self.isVisible():
+            r = subprocess.run(["systemctl", "is-active", "victus-kbd.service"],
+                               capture_output=True, text=True)
+            self.service_state = r.stdout.strip()
+            self.update_status()
+            self.update_labels()
         if self.tray:
             self.tray.sync()
 
@@ -820,6 +850,9 @@ class Tray(QSystemTrayIcon):
         if rgb != self.last_rgb:
             self.setIcon(dot_icon(rgb))
             self.last_rgb = rgb
+        # A steady color only needs an occasional check (schedule, battery, settings)
+        moving = rgb is not None and self.win.cfg["effect"] != "static"
+        self.anim.setInterval(250 if moving else 2000)
 
     def sync(self):
         self.toggle_act.setChecked(self.win.saved["enabled"])

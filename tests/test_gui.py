@@ -330,6 +330,40 @@ class GuiTest(unittest.TestCase):
         args = execv.call_args[0][1]
         self.assertEqual(args[1:], ["-m", "victus_kbd.gui"])
 
+    def test_preview_animation_only_while_shown(self):
+        self.assertFalse(self.w.anim.isActive())
+        self.w.show()
+        self.assertTrue(self.w.anim.isActive())
+        self.w.hide()
+        self.assertFalse(self.w.anim.isActive())
+
+    def test_hidden_window_does_not_run_systemctl(self):
+        with mock.patch.object(gui.subprocess, "run") as run:
+            self.w.hide()
+            self.w.poll()
+            run.assert_not_called()
+            self.w.show()
+            self.assertTrue(run.called)
+
+    def test_preview_strip_repaints_only_on_change(self):
+        strip = self.w.preview
+        with mock.patch.object(strip, "update") as update:
+            strip.set_color(QColor("#123456"))
+            strip.set_color(QColor("#123456"))
+        self.assertEqual(update.call_count, 1)
+
+    def test_tray_slows_down_for_steady_color(self):
+        t = self.w.tray
+        self.w.effect.setCurrentIndex(list(gui.EFFECT_NAMES).index("static"))
+        t.update_icon()
+        self.assertEqual(t.anim.interval(), 2000)
+        self.w.effect.setCurrentIndex(list(gui.EFFECT_NAMES).index("rainbow"))
+        t.update_icon()
+        self.assertEqual(t.anim.interval(), 250)
+        self.w.power.click()  # light off: nothing moves
+        t.update_icon()
+        self.assertEqual(t.anim.interval(), 2000)
+
     def test_autostart_toggle(self):
         self.w.autostart.setChecked(True)
         with open(gui.AUTOSTART_PATH) as f:

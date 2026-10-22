@@ -4,8 +4,14 @@ import time
 import unittest
 
 from tests import clean_config_dir
-from victus_kbd.daemon import BLACK, FADE, Daemon
-from victus_kbd.effects import CONFIG_PATH, DEFAULTS, PREVIEW_PATH, PREVIEW_TTL, save_config
+from victus_kbd.daemon import (
+    BLACK, FADE, FPS, MAX_STEP, POWER_CHECK_EVERY, RESEND_EVERY, ConfigWatcher, Daemon,
+    frame_interval,
+)
+from victus_kbd.effects import (
+    CONFIG_DIR, CONFIG_PATH, DEFAULTS, EFFECTS, PREVIEW_PATH, PREVIEW_TTL, compute_color,
+    save_config,
+)
 
 
 class FakeKeyboard:
@@ -25,6 +31,22 @@ class FakeKeyboard:
         return tuple(int(self.color[i:i + 2], 16) for i in (0, 2, 4))
 
 
+class mock_reload:
+    """Records calls to Daemon.reload_if_changed while active."""
+
+    def __init__(self, daemon):
+        self.daemon = daemon
+        self.calls = []
+
+    def __enter__(self):
+        real = self.daemon.reload_if_changed
+        self.daemon.reload_if_changed = lambda: (self.calls.append(1), real())
+        return self.calls
+
+    def __exit__(self, *exc):
+        del self.daemon.reload_if_changed
+
+
 class Clock:
     def __init__(self):
         self.t = 1000.0
@@ -41,8 +63,15 @@ class DaemonTest(unittest.TestCase):
         self.ac = True
         self.cfg = copy.deepcopy(DEFAULTS)
         self.save()
-        self.d = Daemon(write=self.kb.write, clock=self.clock, ac=lambda: self.ac,
-                        config_path=CONFIG_PATH, preview_path=PREVIEW_PATH)
+        self.suspended = 0.0  # seconds spent in (fake) suspend
+        self.wall_offset = 0.0  # lets a test jump the wall clock forward
+        self.d = self.make_daemon()
+
+    def make_daemon(self, watcher=None):
+        return Daemon(write=self.kb.write, clock=self.clock,
+                      wall=lambda: time.time() + self.wall_offset,
+                      boot=lambda: self.clock.t + self.suspended, ac=lambda: self.ac,
+                      config_path=CONFIG_PATH, preview_path=PREVIEW_PATH, watcher=watcher)
 
     def save(self, **changes):
         self.cfg.update(changes)
@@ -132,9 +161,71 @@ class DaemonTest(unittest.TestCase):
         self.save(effect="static", color="123456")
         self.run_for(2)
         n = len(self.kb.writes)
-        self.run_for(11, step=0.25)
+        self.run_for(RESEND_EVERY + 1, step=0.25)
         self.assertGreater(len(self.kb.writes), n)
         self.assertEqual(self.kb.color, "123456")
+
+    def test_resume_resends_immediately(self):
+        self.save(effect="static", color="123456")
+        self.run_for(2)
+        n = len(self.kb.writes)
+        self.run_for(1, step=0.25)
+        self.assertEqual(len(self.kb.writes), n)   # nothing to do while steady
+        self.suspended += 600                      # laptop slept for 10 minutes
+        self.d.step()
+        self.assertIn(("color", "123456"), self.kb.writes[n:])
+        self.assertIn(("brightness", "1"), self.kb.writes[n:])
+
+    def test_idle_sleeps_long_with_watcher(self):
+        w = ConfigWatcher(CONFIG_DIR)
+        self.addCleanup(w.close)
+        self.d = self.make_daemon(watcher=w)
+        self.save(effect="static", color="00ff00")
+        self.run_for(1)
+        delay = self.d.step()
+        self.assertGreater(delay, 1.0)
+        self.assertLessEqual(delay, POWER_CHECK_EVERY)
+        # Without a watcher the config has to be polled quickly instead
+        self.d = self.make_daemon()
+        self.run_for(1)
+        self.assertLessEqual(self.d.step(), 0.25)
+
+    def test_watcher_reloads_on_change_only(self):
+        w = ConfigWatcher(CONFIG_DIR)
+        self.addCleanup(w.close)
+        self.d = self.make_daemon(watcher=w)
+        self.save(effect="static", color="ff0000")
+        self.run_for(1)
+        self.assertEqual(self.kb.rgb(), (255, 0, 0))
+        with mock_reload(self.d) as calls:
+            self.run_for(2)
+        self.assertEqual(calls, [])                 # no file checks while nothing changes
+        self.save(color="0000ff")
+        self.run_for(1)
+        self.assertEqual(self.kb.rgb(), (0, 0, 255))
+
+    def test_watcher_drops_expired_preview(self):
+        w = ConfigWatcher(CONFIG_DIR)
+        self.addCleanup(w.close)
+        self.d = self.make_daemon(watcher=w)
+        self.save(effect="static", color="ff0000")
+        self.run_for(1)
+        save_config(dict(copy.deepcopy(self.cfg), color="00ff00"), PREVIEW_PATH)
+        self.run_for(1)
+        self.assertEqual(self.kb.rgb(), (0, 255, 0))
+        # The GUI stops refreshing the preview: once it is stale the saved config wins
+        self.wall_offset = PREVIEW_TTL + 1
+        self.run_for(1)
+        self.assertEqual(self.kb.rgb(), (255, 0, 0))
+
+    def test_animated_delay_follows_effect_speed(self):
+        self.save(effect="rainbow", speed=1)
+        self.run_for(1)
+        slow = self.d.step()
+        self.save(effect="heartbeat", speed=50)
+        self.run_for(1)
+        self.assertAlmostEqual(self.d.step(), 1.0 / FPS)
+        self.assertGreater(slow, 1.0 / FPS)
 
     def test_write_failure_recovers(self):
         self.save(effect="static", color="ff00ff")
@@ -159,6 +250,71 @@ class DaemonTest(unittest.TestCase):
             self.clock.t += 0.05
             time.sleep(0.05)  # effect time follows the wall clock
         self.assertGreater(len(seen), 10)
+
+
+
+class FrameIntervalTest(unittest.TestCase):
+    def cfg(self, **kw):
+        return dict(copy.deepcopy(DEFAULTS), **kw)
+
+    def test_static_needs_no_frames(self):
+        self.assertIsNone(frame_interval(self.cfg(effect="static"), 100))
+        self.assertIsNone(frame_interval(self.cfg(effect="rainbow"), 0))
+
+    def test_never_skips_visible_steps(self):
+        """Lowering the frame rate must not make any effect jumpier than MAX_STEP per frame
+        (unless even the full frame rate can't keep up, as before)."""
+        for effect in EFFECTS:
+            if effect == "static":
+                continue
+            for speed in (1, 30, 60, 100):
+                for bright in (15, 100):
+                    cfg = self.cfg(effect=effect, speed=speed, color="ff4d00",
+                                   colors=["ff0000", "00ff00", "0000ff", "ffffff"])
+                    iv = frame_interval(cfg, bright)
+                    if iv == 1.0 / FPS:
+                        continue
+                    for i in range(int(20 / iv)):
+                        a = compute_color(cfg, 1000 + i * iv, bright)
+                        b = compute_color(cfg, 1000 + (i + 1) * iv, bright)
+                        jump = max(abs(x - y) for x, y in zip(a, b))
+                        self.assertLessEqual(jump, MAX_STEP, (effect, speed, bright, iv))
+
+    def test_fast_effects_keep_full_rate(self):
+        for effect in ("fire", "heartbeat"):
+            self.assertEqual(frame_interval(self.cfg(effect=effect, speed=50), 100), 1.0 / FPS)
+
+    def test_slow_effects_use_fewer_frames(self):
+        self.assertGreaterEqual(frame_interval(self.cfg(effect="rainbow", speed=1), 100), 0.1)
+        self.assertGreaterEqual(frame_interval(self.cfg(effect="breathing", speed=20), 100), 0.1)
+
+
+class ConfigWatcherTest(unittest.TestCase):
+    def setUp(self):
+        clean_config_dir()
+        self.w = ConfigWatcher(CONFIG_DIR)
+        self.addCleanup(self.w.close)
+
+    def test_reports_changes_once(self):
+        self.assertFalse(self.w.drain())
+        save_config(DEFAULTS)
+        self.assertTrue(self.w.drain())
+        self.assertFalse(self.w.drain())
+
+    def test_wait_wakes_on_change(self):
+        save_config(DEFAULTS)
+        t = time.monotonic()
+        self.w.wait(5)
+        self.assertLess(time.monotonic() - t, 1)
+
+    def test_wait_times_out(self):
+        t = time.monotonic()
+        self.w.wait(0.2)
+        self.assertGreaterEqual(time.monotonic() - t, 0.15)
+
+    def test_missing_directory(self):
+        with self.assertRaises(OSError):
+            ConfigWatcher(os.path.join(CONFIG_DIR, "does-not-exist"))
 
 
 if __name__ == "__main__":

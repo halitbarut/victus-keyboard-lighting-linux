@@ -49,6 +49,14 @@ struct bios_return {
 static struct platform_device *vk_pdev;
 static DEFINE_MUTEX(vk_lock);
 
+/*
+ * Last color table read from the firmware. Each WMI call costs ~1.6 ms of
+ * ACPI work, so color writes reuse this instead of reading the table first.
+ * Reading the color attribute refreshes it; a failed write invalidates it.
+ */
+static u8 vk_state[FZ_BUF_SIZE];
+static bool vk_state_valid;
+
 static int vk_method_id(int outsize)
 {
 	if (outsize > 1024)
@@ -126,6 +134,10 @@ static ssize_t color_show(struct device *dev, struct device_attribute *attr,
 
 	mutex_lock(&vk_lock);
 	ret = vk_query(FZ_COLOR_GET, buf, sizeof(buf), sizeof(buf));
+	if (!ret) {
+		memcpy(vk_state, buf, sizeof(vk_state));
+		vk_state_valid = true;
+	}
 	mutex_unlock(&vk_lock);
 	if (ret)
 		return ret;
@@ -145,14 +157,22 @@ static ssize_t color_store(struct device *dev, struct device_attribute *attr,
 		return -EINVAL;
 
 	mutex_lock(&vk_lock);
-	ret = vk_query(FZ_COLOR_GET, buf, sizeof(buf), sizeof(buf));
+	ret = 0;
+	if (!vk_state_valid) {
+		ret = vk_query(FZ_COLOR_GET, vk_state, sizeof(vk_state), sizeof(vk_state));
+		vk_state_valid = !ret;
+	}
 	if (!ret) {
 		for (i = 0; i < FZ_ZONES; i++) {
-			buf[FZ_COLOR_OFFSET + i * 3 + 0] = (rgb >> 16) & 0xFF;
-			buf[FZ_COLOR_OFFSET + i * 3 + 1] = (rgb >> 8) & 0xFF;
-			buf[FZ_COLOR_OFFSET + i * 3 + 2] = rgb & 0xFF;
+			vk_state[FZ_COLOR_OFFSET + i * 3 + 0] = (rgb >> 16) & 0xFF;
+			vk_state[FZ_COLOR_OFFSET + i * 3 + 1] = (rgb >> 8) & 0xFF;
+			vk_state[FZ_COLOR_OFFSET + i * 3 + 2] = rgb & 0xFF;
 		}
+		/* The call overwrites its buffer with the reply, so send a copy */
+		memcpy(buf, vk_state, sizeof(buf));
 		ret = vk_query(FZ_COLOR_SET, buf, sizeof(buf), sizeof(buf));
+		if (ret)
+			vk_state_valid = false;
 	}
 	mutex_unlock(&vk_lock);
 
@@ -235,6 +255,8 @@ static int __init vk_init(void)
 	}
 	pr_info("victus_kbd: zone0 color %02x%02x%02x\n", buf[FZ_COLOR_OFFSET],
 		buf[FZ_COLOR_OFFSET + 1], buf[FZ_COLOR_OFFSET + 2]);
+	memcpy(vk_state, buf, sizeof(vk_state));
+	vk_state_valid = true;
 
 	vk_pdev = platform_device_register_full(&(struct platform_device_info){
 		.name = "victus-kbd",
@@ -261,7 +283,7 @@ module_init(vk_init);
 module_exit(vk_exit);
 
 MODULE_DESCRIPTION("HP Victus keyboard RGB backlight control");
-MODULE_VERSION("1.0.0");
+MODULE_VERSION("1.1.0");
 /* Dual licensed; GPL compatibility is needed for the WMI symbols. */
 MODULE_LICENSE("Dual MIT/GPL");
 /*
